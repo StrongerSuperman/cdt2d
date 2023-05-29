@@ -10,6 +10,14 @@
 static int checkSteinerEncroachingEdges = 1;
 static int splitConstrainedEdge = 1;  // flag to decide whether to split constrianed edge
 
+void CDT_ASSERT(bool condition)
+{
+	if (!condition)
+	{
+		assert(false);
+	}
+}
+
 namespace CDT
 {
 	Triangulation::Triangulation()
@@ -41,7 +49,7 @@ namespace CDT
 	{
 		std::cout << "------------------Start--------------------" << std::endl;
 		size_t verticesSize = vertices.size();
-		assert(vertices.size() > 2);
+		CDT_ASSERT(vertices.size() > 2);
 
 		// init triangulation by first two vertices and a ghost vertex
 		IdxType firstVtx = 0;
@@ -115,7 +123,7 @@ namespace CDT
 		}
 		else
 		{
-			assert(false);
+			CDT_ASSERT(false);
 		}
 	}
 
@@ -130,7 +138,7 @@ namespace CDT
 		 * The typical walk visits small constant number of tetrahedron
 		 */
 
-		assert(edgeTriIdxTable.size() > 3);   // at least three ghost triangles exist
+		CDT_ASSERT(edgeTriIdxTable.size() > 3);   // at least three ghost triangles exist
 
 		PntLineLocationType plLocType;
 		TriUSet visited;
@@ -144,7 +152,7 @@ namespace CDT
 		{
 			const Triangle* curTri = candidates.top();
 			candidates.pop();
-			assert(curTri != nullptr);
+			CDT_ASSERT(curTri != nullptr);
 
 			// NOTE: the triangulation of a point set is a convex hull
 			if (isTriangleGhost(*curTri))
@@ -159,7 +167,7 @@ namespace CDT
 					break;
 				}
 				neighborTri = getTriangle(Edge(vEnd, vStart));
-				assert(neighborTri != nullptr);
+				CDT_ASSERT(neighborTri != nullptr);
 				candidates.push(neighborTri);
 			}
 			else
@@ -172,7 +180,7 @@ namespace CDT
 					vStart = curTri->V(i % 3);
 					vEnd = curTri->V((i + 1) % 3);
 					neighborTri = getTriangle(Edge(vEnd, vStart));
-					assert(neighborTri != nullptr);
+					CDT_ASSERT(neighborTri != nullptr);
 					plLocType = locatePntLine(v, vStart, vEnd);
 					if (plLocType == PntLineLocationType::PL_RIGHT &&
 						visited.insert(*neighborTri).second)
@@ -233,7 +241,7 @@ namespace CDT
 	void Triangulation::insertVtxInsideTriangulation(IdxType v, const Triangle* tri)
 	{
 		PntTriLocationType locTri = locatePntTriangle(v, tri->V1(), tri->V2(), tri->V3());
-		assert(locTri != PntTriLocationType::PT_OUTSIDE);
+		CDT_ASSERT(locTri != PntTriLocationType::PT_OUTSIDE);
 		if (locTri > PntTriLocationType::PT_INSIDE)  /*on edge*/
 		{
 			size_t edgeIdxInTri = static_cast<size_t>(locTri - PntTriLocationType::PT_ON_EDGE_1);
@@ -279,7 +287,7 @@ namespace CDT
 		if (loc.onBoundaryEdge)
 		{
 			const Edge& boundaryEdge = loc.boundaryEdge;
-			assert(isVtxValid(boundaryEdge.V1()) && isVtxValid(boundaryEdge.V2()));
+			CDT_ASSERT(isVtxValid(boundaryEdge.V1()) && isVtxValid(boundaryEdge.V2()));
 			insertVtxOnEdge(v, boundaryEdge.V1(), boundaryEdge.V2());
 		}
 		else
@@ -287,7 +295,7 @@ namespace CDT
 			/* NOTE: Since delaunay triangulation of a point set is a convex, so we can conclude that
 			the edge in inHPEdges or onHPEdges connect each other(except start and end edge of the edge chain)*/
 
-			assert(!(loc.inHPEdges.empty() && loc.onHPEdges.empty()));
+			CDT_ASSERT(!(loc.inHPEdges.empty() && loc.onHPEdges.empty()));
 
 			auto findStartEndVertices = [](const std::vector<Edge>& edges)
 			{
@@ -314,7 +322,7 @@ namespace CDT
 						continue;
 					countOneVertices.push_back(vtx2CountIter.first);
 				}
-				assert(countOneVertices.size() == 2);
+				CDT_ASSERT(countOneVertices.size() == 2);
 				IdxType v1 = countOneVertices[0];
 				IdxType v2 = countOneVertices[1];
 				return std::make_pair(v1, v2);
@@ -350,7 +358,7 @@ namespace CDT
 				}
 				else
 				{
-					assert(false);
+					CDT_ASSERT(false);
 				}
 			}
 			else
@@ -457,7 +465,7 @@ namespace CDT
 
 	void Triangulation::insertEdgeIter(const Edge& edge, std::vector<Edge>& remainingEdges)
 	{
-		assert(!isEdgeGhost(edge));
+		CDT_ASSERT(!isEdgeGhost(edge));
 
 		IdxType vEdgeStart = edge.V1();
 		IdxType vEdgeEnd = edge.V2();
@@ -543,7 +551,7 @@ namespace CDT
 			}
 		}
 
-		assert(curTri != nullptr);
+		CDT_ASSERT(curTri != nullptr);
 
 		// walk from edge start vertex to end to find all triangles that intersect the edge
 		IdxType vOpo;
@@ -557,8 +565,8 @@ namespace CDT
 			curTriOpo = getOppositeTriangle(*curTri, v);
 			vOpo = getOppositeVtx(*curTri, v);
 
-			assert(isVtxValid(vOpo));
-			assert(!isVtxGhost(vOpo));
+			CDT_ASSERT(isVtxValid(vOpo));
+			CDT_ASSERT(!isVtxGhost(vOpo));
 
 			isectTris.push_back(curTriOpo);
 			curTri = curTriOpo;
@@ -610,7 +618,7 @@ namespace CDT
 
 	void Triangulation::triangulatePseudopolygon(IdxType vStart, IdxType vEnd, std::vector<IdxType>&& midPts)
 	{
-		assert(!midPts.empty());
+		CDT_ASSERT(!midPts.empty());
 		typedef std::tuple<IdxType, IdxType, std::vector<IdxType>> Pseudopolygon;
 		std::vector<Pseudopolygon> remaining;
 		remaining.emplace_back(vStart, vEnd, std::move(midPts));
@@ -648,7 +656,7 @@ namespace CDT
 
 	size_t Triangulation::findDelaunayPoint(IdxType vStart, IdxType vEnd, const std::vector<IdxType>& midPts)
 	{
-		assert(!midPts.empty());
+		CDT_ASSERT(!midPts.empty());
 		size_t vDelaunayPtIdx = 0;
 		for (size_t i = 0; i < midPts.size(); i++)
 		{
@@ -662,7 +670,7 @@ namespace CDT
 
 	void Triangulation::removeOuterAndHoles()
 	{
-		if (0)
+		if (1)
 		{
 			// only reomve outer(ghost triangles)
 			auto iter = edgeTriIdxTable.begin();
@@ -1079,7 +1087,7 @@ namespace CDT
 	void Triangulation::insertVtxCustom(IdxType v, const Triangle* tri)
 	{
 		PntTriLocationType locTri = locatePntTriangle(v, tri->V1(), tri->V2(), tri->V3());
-		assert(locTri != PntTriLocationType::PT_OUTSIDE);
+		CDT_ASSERT(locTri != PntTriLocationType::PT_OUTSIDE);
 		if (locTri > PntTriLocationType::PT_INSIDE)  /*on edge*/
 		{
 			size_t edgeIdxInTri = static_cast<size_t>(locTri - PntTriLocationType::PT_ON_EDGE_1);
@@ -1174,7 +1182,7 @@ namespace CDT
 		 * The typical walk visits small constant number of tetrahedron
 		 */
 
-		assert(guideTri != nullptr);
+		CDT_ASSERT(guideTri != nullptr);
 
 		PntTriLocationType locTri = locatePntTriangle(v, guideTri->V1(), guideTri->V2(), guideTri->V3());
 		if(locTri == PntTriLocationType::PT_INSIDE)
@@ -1211,7 +1219,7 @@ namespace CDT
 		{
 			const Triangle* curTri = candidates.top();
 			candidates.pop();
-			assert(curTri != nullptr);
+			CDT_ASSERT(curTri != nullptr);
 
 			bool foundInTriangle = true;
 			// TODO: handle the case where vertex lie on the boundary
@@ -1508,7 +1516,7 @@ namespace CDT
 
 	void Triangulation::addTriangle(IdxType v1, IdxType v2, IdxType v3)
 	{
-		assert(isTriangleValid(v1, v2, v3));
+		CDT_ASSERT(isTriangleValid(v1, v2, v3));
 
 		Triangle tri(v1, v2, v3);
 		triangles.push_back(tri);
@@ -1522,7 +1530,7 @@ namespace CDT
 
 	void Triangulation::deleteTriangle(IdxType v1, IdxType v2, IdxType v3)
 	{
-		assert(isTriangleValid(v1, v2, v3));
+		CDT_ASSERT(isTriangleValid(v1, v2, v3));
 
 		// delete from 'edgeTriIdxTable'
 		removeEdgeTri(Edge(v1, v2));
@@ -1564,7 +1572,7 @@ namespace CDT
 			}
 		}
 
-		assert(tri != nullptr);
+		CDT_ASSERT(tri != nullptr);
 
 		return std::make_pair(tri->GetVtxCCW(v), tri->GetVtxCW(v));
 	}
@@ -1574,7 +1582,7 @@ namespace CDT
 		if (isEdgeTriExist(edge))
 		{
 			// TODO: do some check here if edge already in 'edgeTriIdxTable'
-			//assert(false);
+			//CDT_ASSERT(false);
 		}
 
 		edgeTriIdxTable.emplace(edge, triIdx);
@@ -1608,7 +1616,7 @@ namespace CDT
 		if (!isEdgeTriExist(edge))
 		{
 			// TODO: do some check here if edge not in 'edgeTriIdxTable'
-			//assert(false);
+			//CDT_ASSERT(false);
 		}
 
 		edgeTriIdxTable.erase(edge);
