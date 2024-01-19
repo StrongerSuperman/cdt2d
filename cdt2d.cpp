@@ -827,7 +827,7 @@ namespace CDT
         failedSplitBadTris = 0;
         totalSplitTris = 0;
         totalSplitEdges = 0;
-        EdgeStack().swap(encroachedEdges);
+        encroachedEdges.clear();
         badTriangles.clear();
 
 		// collect all encroached edges
@@ -841,7 +841,7 @@ namespace CDT
 				continue;
 			if (isEdgeEncroached(edge))
 			{
-				encroachedEdges.push(edge);
+				encroachedEdges.insert(edge);
 			}
 		}
 		checkedEdges.clear();
@@ -849,8 +849,9 @@ namespace CDT
         // fix encroached edges without noting bad triangles
         while(!encroachedEdges.empty() && insertSteinerCnt < maxSteinerCnt)
         {
-            Edge edge = encroachedEdges.top();
-            encroachedEdges.pop();
+            auto beginIter = encroachedEdges.begin();
+            Edge edge = *(beginIter);
+            encroachedEdges.erase(beginIter);
             
             splitEdge(edge);
         }
@@ -884,8 +885,9 @@ namespace CDT
                 // fix any encroached subsegments that resulted
                 while(!encroachedEdges.empty() && insertSteinerCnt < maxSteinerCnt)
                 {
-                    Edge edge = encroachedEdges.top();
-                    encroachedEdges.pop();
+                    auto beginIter = encroachedEdges.begin();
+                    Edge edge = *(beginIter);
+                    encroachedEdges.erase(beginIter);
                     
                     splitEdge(edge);
                 }
@@ -958,18 +960,25 @@ namespace CDT
 		// try to insert the new vertex on edge
 		try
 		{
-			insertVtxOnEdgeCDT(newVtxIdx, edgeV1, edgeV2);
+            Edge edge(edgeV1, edgeV2);
+            VertexInsertType insertResult = insertVtxOnEdgeCDT(newVtxIdx, edge, true);
+            /* this should always succeed*/
+            if(insertResult != VertexInsertType::VI_SUCCESS && insertResult != VertexInsertType::VI_ENCROACHED)
+            {
+                vertices.pop_back();
+                return;
+            }
             
             // check whether the splitted sub-edge encroached
             Edge splitEdge1(edgeV1, newVtxIdx);
             Edge splitEdge2(newVtxIdx, edgeV2);
             if (isEdgeEncroached(splitEdge1))
             {
-                encroachedEdges.push(splitEdge1);
+                encroachedEdges.insert(splitEdge1);
             }
             if (isEdgeEncroached(splitEdge2))
             {
-                encroachedEdges.push(splitEdge2);
+                encroachedEdges.insert(splitEdge2);
             }
 
             totalSplitEdges++;
@@ -1027,11 +1036,14 @@ namespace CDT
                 /* If the newly inserted vertex encroaches upon a subsegment,
                  * delete the new vertex*/
                 undoInsertVtxCDT();
+                vertices.pop_back();
             }
             else /* VI_VIOLATING*/
             {
                 /* failed to insert the new vertex, but some subsegment was
                  * marked as being encroached */
+                failedSplitBadTris++;
+                vertices.pop_back();
             }
 		}
 		catch (...)
@@ -1053,11 +1065,13 @@ namespace CDT
 			size_t v2IdxInTri = (v1IdxInTri + 1) % 3;
 			IdxType edgeV1 = tri->V(v1IdxInTri);
 			IdxType edgeV2 = tri->V(v2IdxInTri);
-			return insertVtxOnEdgeCDT(v, edgeV1, edgeV2);
+            Edge edge(edgeV1, edgeV2);
+            
+            return insertVtxOnEdgeCDT(v, edge);
 		}
 		else  /*inside triangle*/
 		{
-			return insertVtxInTriangleCDT(v, tri);
+            return insertVtxInTriangleCDT(v, tri);
 		}
 	}
 
@@ -1066,74 +1080,149 @@ namespace CDT
         
     }
 
+    VertexInsertType Triangulation::insertVtxOnEdgeCDT(IdxType v, const Edge& edge, bool force)
+    {
+        if (isEdgeConstrained(edge) && !force)
+        {
+            /* the vertex falls on a constrained edge, and hence will not be inserted*/
+            return VertexInsertType::VI_VIOLATING;
+        }
+        else
+        {
+            IdxType edgeV1 = edge.V1();
+            IdxType edgeV2 = edge.V2();
+            
+            // mark two splitted edges constrained if it derived from a constrained edge
+            if (isEdgeConstrained(edge))
+            {
+                Edge splitEdge1(edgeV1, v);
+                Edge splitEdge2(v, edgeV2);
+                removeConstrainEdge(edge);
+                addConstrainEdge(splitEdge1);
+                addConstrainEdge(splitEdge2);
+            }
+            
+            /* insert on edge*/
+            IdxType edgTriV = adjacent(edgeV1, edgeV2);
+            IdxType edgOpoTriV = adjacent(edgeV2, edgeV1);
+            if (isVtxValid(edgTriV))
+            {
+                deleteTriangle(edgeV1, edgeV2, edgTriV);
+                digCavityCDT(v, edgeV2, edgTriV);
+                digCavityCDT(v, edgTriV, edgeV1);
+            }
+            if (isVtxValid(edgOpoTriV))
+            {
+                deleteTriangle(edgeV2, edgeV1, edgOpoTriV);
+                digCavityCDT(v, edgeV1, edgOpoTriV);
+                digCavityCDT(v, edgOpoTriV, edgeV2);
+            }
+            
+            if (encroachedEdges.size() > 0)
+            {
+                return VertexInsertType::VI_ENCROACHED;
+            }
+            else
+            {
+                return VertexInsertType::VI_SUCCESS;
+            }
+        }
+    }
+
     VertexInsertType Triangulation::insertVtxInTriangleCDT(IdxType v, const Triangle* tri)
-	{
-		IdxType v1 = tri->V1();
-		IdxType v2 = tri->V2();
-		IdxType v3 = tri->V3();
-		deleteTriangle(v1, v2, v3);
-		digCavityCDT(v, v1, v2);
-		digCavityCDT(v, v2, v3);
-		digCavityCDT(v, v3, v1);
-	}
-
-    VertexInsertType Triangulation::insertVtxOnEdgeCDT(IdxType v, IdxType edgeV1, IdxType edgeV2)
-	{
-		Edge edge(edgeV1, edgeV2);
-		IdxType edgTriV = adjacent(edgeV1, edgeV2);
-		IdxType edgRevTriV = adjacent(edgeV2, edgeV1);
-		if (isVtxValid(edgTriV))
-		{
-			deleteTriangle(edgeV1, edgeV2, edgTriV);
-			digCavityCDT(v, edgeV2, edgTriV);
-			digCavityCDT(v, edgTriV, edgeV1);
-		}
-		if (isVtxValid(edgRevTriV))
-		{
-			deleteTriangle(edgeV2, edgeV1, edgRevTriV);
-			digCavityCDT(v, edgeV1, edgRevTriV);
-			digCavityCDT(v, edgRevTriV, edgeV2);
-		}
+    {
+        IdxType v1 = tri->V1();
+        IdxType v2 = tri->V2();
+        IdxType v3 = tri->V3();
+        deleteTriangle(v1, v2, v3);
+        digCavityCDT(v, v1, v2);
+        digCavityCDT(v, v2, v3);
+        digCavityCDT(v, v3, v1);
         
-        // mark two splitted edges constrained if it derived from a constrained edge
-		if (isEdgeConstrained(edge) && (isVtxValid(edgTriV) || isVtxValid(edgRevTriV)))
-		{
-			removeConstrainEdge(edge);
-			Edge splitEdge1(edgeV1, v);
-			Edge splitEdge2(v, edgeV2);
-			addConstrainEdge(splitEdge1);
-			addConstrainEdge(splitEdge2);
-		}
-	}
+        if (encroachedEdges.size() > 0)
+        {
+            return VertexInsertType::VI_ENCROACHED;
+        }
+        else
+        {
+            return VertexInsertType::VI_SUCCESS;
+        }
+    }
 
-	void Triangulation::digCavityCDT(IdxType v, IdxType v1, IdxType v2)
+	bool Triangulation::digCavityCDT(IdxType v, IdxType v1, IdxType v2)
 	{
 		// do not flip constrained edge
 		if (isEdgeConstrained(Edge(v1, v2)))
 		{
+            if(checkTriEdgeEncroached(v, v1, v2))
+            {
+                return false;
+            }
 			addTriangle(v, v1, v2);
-			return;
+			return true;
 		}
 
 		IdxType vOpo = adjacent(v2, v1);
 		if (!isVtxValid(vOpo))
 		{
-			addTriangle(v, v1, v2);
-			return;
+            if(checkTriEdgeEncroached(v, v1, v2))
+            {
+                return false;
+            }
+            addTriangle(v, v1, v2);
+            return true;
 		}
 
 		/* depth-first search to find all triangles that are no longer Delaunay*/
 		if (isTriangleDelaunay(v, v1, v2, vOpo))
 		{
-			addTriangle(v, v1, v2);
+            if(checkTriEdgeEncroached(v, v1, v2))
+            {
+                return false;
+            }
+            addTriangle(v, v1, v2);
+            return true;
 		}
 		else
 		{
 			deleteTriangle(v2, v1, vOpo);
-			digCavityCDT(v, v1, vOpo);
-			digCavityCDT(v, vOpo, v2);
+			if(!digCavityCDT(v, v1, vOpo))
+            {
+                return false;
+            }
+			if(!digCavityCDT(v, vOpo, v2))
+            {
+                return false;
+            }
+            return true;
 		}
 	}
+
+    bool Triangulation::checkTriEdgeEncroached(IdxType v1, IdxType v2, IdxType v3)
+    {
+        Edge edge1(v1, v2);
+        bool edge1Encroached = isEdgeEncroached(edge1);
+        if(edge1Encroached)
+        {
+            encroachedEdges.insert(edge1);
+            return true;
+        }
+        Edge edge2(v2, v3);
+        bool edge2Encroached = isEdgeEncroached(edge2);
+        if(edge2Encroached)
+        {
+            encroachedEdges.insert(edge2);
+            return true;
+        }
+        Edge edge3(v3, v1);
+        bool edge2Encroached = isEdgeEncroached(edge3);
+        if(edge3Encroached)
+        {
+            encroachedEdges.insert(edge3);
+            return true;
+        }
+        return false;
+    }
 
 	void Triangulation::locatePointWithGuide(IdxType v, const Triangle* guideTri, TriangulationLocation& loc)
 	{

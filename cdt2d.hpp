@@ -278,9 +278,10 @@ namespace CDT
 		void splitTriangle(IdxType badTriIdx);
         VertexInsertType insertVtxCDT(IdxType v, const Triangle* tri);
         void undoInsertVtxCDT();
+        VertexInsertType insertVtxOnEdgeCDT(IdxType v, const Edge& edge, bool force=false);
         VertexInsertType insertVtxInTriangleCDT(IdxType v, const Triangle* tri);
-        VertexInsertType insertVtxOnEdgeCDT(IdxType v, IdxType edgV1, IdxType edgV2);
-		void digCavityCDT(IdxType v, IdxType v1, IdxType v2);
+		bool digCavityCDT(IdxType v, IdxType v1, IdxType v2);
+        bool checkTriEdgeEncroached(IdxType v1, IdxType v2, IdxType v3);
 		void locatePointWithGuide(IdxType v, const Triangle* guideTri, TriangulationLocation& loc);
 		bool isEdgeEncroached(const Edge& edge);
 		bool isEdgeEncroachedByVtx(const Edge& edge, IdxType v);
@@ -368,24 +369,22 @@ namespace CDT
 		/* TODO: use kd-tree to find nearest point*/
 		IdxType mostRecentAddedTri = DUMMY_TRI_IDX;
 		/* most recently added triangle adjoining u(key) also has a v(value) for a vertex*/
-		std::unordered_map<IdxType, IdxType> vtx2vtxMap;    
-		/* a unordered set to store all ghost edges*/
+		std::unordered_map<IdxType, IdxType> vtx2vtxMap;
+        
 		EdgeUSet ghostTriEdges;
-		/* a unordered set to store all constrained edges*/
 		EdgeUSet constrainedEdges;
         
-        /* for delaunay refinement*/
-        EdgeStack encroachedEdges;
-        TriIdxDeque badTriangles;
-
+        /* for orient and incircle test*/
 		PredicateType orient2dTol = 0;
 		PredicateType incircleTol = 0;
-
+        
+        /* for delaunay refinement*/
+        EdgeUSet encroachedEdges;
+        TriIdxDeque badTriangles;
 		int insertSteinerCnt = 0;              // current insert steiner point cnt
 		int maxSteinerCnt = 500;               // max insert steiner pnt cnt
 		PrecisionType maxArea = 10.0;          // maximum area bound
 		PrecisionType minAngle = 25.0;         // minimum angle bound
-
 		PrecisionType goodAngleCosSquare;      // cosine squared of minAngle
 		PrecisionType offConstant;             // constant used to place off-center Steiner points
 

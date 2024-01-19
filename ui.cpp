@@ -123,7 +123,7 @@ void CDTWidget::updateInsertVertex()
    curInsertVtxIdx = std::max(curInsertVtxIdx, MIN_VTX_IDX);
    std::vector<Vertex> insertVertices(m_points.begin(), m_points.begin() + curInsertVtxIdx + 1);
    m_cdt.InsertVertices(insertVertices);
-   m_cdt.PerformTriangulation(false);
+   m_cdt.Perform(false);
    update();
 }
 
@@ -154,7 +154,7 @@ void CDTWidget::updateInsertEdge()
       std::vector<Edge> insertEdges(m_edges.begin(), m_edges.begin() + curInsertEdgeIdx + 1);
       m_cdt.InsertEdges(insertEdges);
    }
-   m_cdt.PerformTriangulation(false);
+   m_cdt.Perform(false);
    update();
 }
 
@@ -205,7 +205,7 @@ void CDTWidget::updateCDT()
             //CDT::RemapEdges(m_edges, duplInfo.mapping);
             m_cdt.InsertEdges(m_edges);
         }
-        m_cdt.PerformTriangulation(m_delaunayRefine);
+        m_cdt.Perform(m_delaunayRefine);
     }
     update();
 }
