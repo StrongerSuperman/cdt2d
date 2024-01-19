@@ -1108,24 +1108,29 @@ namespace CDT
             if (isVtxValid(edgTriV))
             {
                 deleteTriangle(edgeV1, edgeV2, edgTriV);
-                digCavityCDT(v, edgeV2, edgTriV);
-                digCavityCDT(v, edgTriV, edgeV1);
+                if(!digCavityCDT(v, edgeV2, edgTriV))
+                {
+                    return VertexInsertType::VI_ENCROACHED;
+                }
+                if(!digCavityCDT(v, edgTriV, edgeV1))
+                {
+                    return VertexInsertType::VI_ENCROACHED;
+                }
             }
             if (isVtxValid(edgOpoTriV))
             {
                 deleteTriangle(edgeV2, edgeV1, edgOpoTriV);
-                digCavityCDT(v, edgeV1, edgOpoTriV);
-                digCavityCDT(v, edgOpoTriV, edgeV2);
+                if(!digCavityCDT(v, edgeV1, edgOpoTriV))
+                {
+                    return VertexInsertType::VI_ENCROACHED;
+                }
+                if(!digCavityCDT(v, edgOpoTriV, edgeV2))
+                {
+                    return VertexInsertType::VI_ENCROACHED;
+                }
             }
             
-            if (encroachedEdges.size() > 0)
-            {
-                return VertexInsertType::VI_ENCROACHED;
-            }
-            else
-            {
-                return VertexInsertType::VI_SUCCESS;
-            }
+            return VertexInsertType::VI_SUCCESS;
         }
     }
 
@@ -1135,18 +1140,20 @@ namespace CDT
         IdxType v2 = tri->V2();
         IdxType v3 = tri->V3();
         deleteTriangle(v1, v2, v3);
-        digCavityCDT(v, v1, v2);
-        digCavityCDT(v, v2, v3);
-        digCavityCDT(v, v3, v1);
-        
-        if (encroachedEdges.size() > 0)
+        if(!digCavityCDT(v, v1, v2))
         {
             return VertexInsertType::VI_ENCROACHED;
         }
-        else
+        if(!digCavityCDT(v, v2, v3))
         {
-            return VertexInsertType::VI_SUCCESS;
+            return VertexInsertType::VI_ENCROACHED;
         }
+        if(!digCavityCDT(v, v3, v1))
+        {
+            return VertexInsertType::VI_ENCROACHED;
+        }
+        
+        return VertexInsertType::VI_SUCCESS;
     }
 
 	bool Triangulation::digCavityCDT(IdxType v, IdxType v1, IdxType v2)
@@ -1215,7 +1222,7 @@ namespace CDT
             return true;
         }
         Edge edge3(v3, v1);
-        bool edge2Encroached = isEdgeEncroached(edge3);
+        bool edge3Encroached = isEdgeEncroached(edge3);
         if(edge3Encroached)
         {
             encroachedEdges.insert(edge3);
