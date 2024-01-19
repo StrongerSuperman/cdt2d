@@ -46,6 +46,13 @@ namespace CDT
 		TL_INSIDE,
 	};
 
+    enum VertexInsertType
+    {
+        VI_SUCCESS = 0,
+        VI_ENCROACHED,
+        VI_VIOLATING
+    };
+
 	class Vertex
 	{
 	public:
@@ -57,6 +64,7 @@ namespace CDT
 		inline PrecisionType Y() const { return pos.second; };
 	private:
 		std::pair<PrecisionType, PrecisionType> pos;
+        
 	};
 
 	class Edge
@@ -170,7 +178,7 @@ namespace CDT
 			onBoundaryEdge = rhs.onBoundaryEdge;
 		};
 		~TriangulationLocation() {};
-		const Triangle* tri;              // inside the triangle or on the triangle edge
+		const Triangle* tri;                // inside the triangle or on the triangle edge
 
 		std::vector<Edge> inHPEdges;        // in the right half-plane of these directed edges
 		std::vector<Edge> onHPEdges;        // on the right half-plane of these directed edges
@@ -220,7 +228,6 @@ namespace CDT
 
 	typedef std::unordered_set<Triangle, HashTriangle> TriUSet;
 	typedef std::unordered_set<IdxType> TriIdxUSet;
-	typedef std::map<PrecisionType, IdxType, std::greater<PrecisionType>> TriIdxMap;
 	typedef std::stack<IdxType> TriIdxStack;
 	typedef std::deque<IdxType> TriIdxDeque;
 
@@ -235,7 +242,7 @@ namespace CDT
 		void InsertVertices(const std::vector<Vertex>& vertexList);
 		void InsertEdges(const std::vector<Edge>& edgeList,
 			const std::vector<std::vector<Edge>>& holesEdgeList = std::vector<std::vector<Edge>>());
-		void PerformTriangulation(bool delaunayRefine=true);
+		void Perform(bool delaunayRefine=true);
 
 		const std::vector<Triangle>& GetTriangles() const { return triangles; };
 		const std::vector<Vertex>& GetVertices() const { return vertices; };
@@ -267,21 +274,19 @@ namespace CDT
 
 		/* Delaunay refine*/
 		void delaunayRefinement();
-		bool splitEdge(EdgeStack& encroachedEdges);
-		bool splitTriangle(EdgeStack& encroachedEdges, TriIdxMap& badTriangles);
-		IdxType addSteinerVertex(const Vertex& vtx);
-		void popLastSteinerVertex();
-		void insertVtxCustom(IdxType v, const Triangle* tri);
-		void insertVtxInTriangleCustom(IdxType v, const Triangle* tri);
-		void insertVtxOnEdgeCustom(IdxType v, IdxType edgV1, IdxType edgV2);
-		void digCavityCustom(IdxType v, IdxType v1, IdxType v2);
+		void splitEdge(const Edge& edge);
+		void splitTriangle(IdxType badTriIdx);
+        VertexInsertType insertVtxCDT(IdxType v, const Triangle* tri);
+        void undoInsertVtxCDT();
+        VertexInsertType insertVtxInTriangleCDT(IdxType v, const Triangle* tri);
+        VertexInsertType insertVtxOnEdgeCDT(IdxType v, IdxType edgV1, IdxType edgV2);
+		void digCavityCDT(IdxType v, IdxType v1, IdxType v2);
 		void locatePointWithGuide(IdxType v, const Triangle* guideTri, TriangulationLocation& loc);
 		bool isEdgeEncroached(const Edge& edge);
 		bool isEdgeEncroachedByVtx(const Edge& edge, IdxType v);
 		void calTriangleQuality(const Triangle& tri, TriangleQuality& triQuality) const;
 		Vertex findCircumcenter(const Triangle& tri) const;
 		Vertex findCentriod(const Triangle& tri) const;
-		void findEncroachedEdgesByVtx(IdxType v, const Triangle& tri, std::vector<Edge>& edgeList);
 
 	private:
 		/* Add a positively oriented triangle v1v2v3, and do nothing if v1v2v3 is not
@@ -368,6 +373,10 @@ namespace CDT
 		EdgeUSet ghostTriEdges;
 		/* a unordered set to store all constrained edges*/
 		EdgeUSet constrainedEdges;
+        
+        /* for delaunay refinement*/
+        EdgeStack encroachedEdges;
+        TriIdxDeque badTriangles;
 
 		PredicateType orient2dTol = 0;
 		PredicateType incircleTol = 0;

@@ -7,9 +7,6 @@
 
 #define PI 3.141592653589793238462643383279502884197169399375105820974944592308
 
-static int checkSteinerEncroachingEdges = 1;
-static int splitConstrainedEdge = 1;  // flag to decide whether to split constrianed edge
-
 namespace CDT
 {
 	Triangulation::Triangulation()
@@ -37,7 +34,7 @@ namespace CDT
 		this->holesEdges = holesEdgeList;
 	}
 
-	void Triangulation::PerformTriangulation(bool delaunayRefine)
+	void Triangulation::Perform(bool delaunayRefine)
 	{
 		std::cout << "------------------Start--------------------" << std::endl;
 		size_t verticesSize = vertices.size();
@@ -125,9 +122,9 @@ namespace CDT
 		 * 
 		 * Walking is fast in practice if it follows two guides:
 		 * 1.the vertices should be inserted in an order that has much spatial locality
-		 * 2.each walk should begin at the most recently created tetrahedron
+		 * 2.each walk should begin at the most recently created triangle
 		 * 
-		 * The typical walk visits small constant number of tetrahedron
+		 * The typical walk visits small constant number of triangle
 		 */
 
 		assert(edgeTriIdxTable.size() > 3);   // at least three ghost triangles exist
@@ -802,6 +799,9 @@ namespace CDT
 	void Triangulation::delaunayRefinement()
 	{
 		/* Delaunay refinment based on Ruppert's algorithm.
+         
+         * The algorithm interleaves segment splitting with triangle splitting,
+         * and encroached segments are given priority over skinny triangles.
 		 * 
 		 * Step1: Segment Split
 		 * Desc:  Find all 'encroached' segments to split(segment here is the constrained edge in CDT).
@@ -814,9 +814,15 @@ namespace CDT
 		 * 
 		 * NOTE:  The input is CDT, the outer triangles and holes have already been removed.
 		 */
+        
+        insertSteinerCnt = 0;
+        failedSplitBadTris = 0;
+        totalSplitTris = 0;
+        totalSplitEdges = 0;
+        EdgeStack().swap(encroachedEdges);
+        badTriangles.clear();
 
-		// collect all encroached edges in CDT
-		EdgeStack encroachedEdges;
+		// collect all encroached edges
 		EdgeUSet checkedEdges;
 		for (const auto& edgeTriPair : edgeTriIdxTable)
 		{
@@ -825,18 +831,23 @@ namespace CDT
 			Edge edgeRev(edge.V2(), edge.V1());
 			if (checkedEdges.find(edgeRev) != checkedEdges.end())
 				continue;
-			// check whether to split constrained edge
-			if (!splitConstrainedEdge && isEdgeConstrained(edge))
-				continue;
 			if (isEdgeEncroached(edge))
 			{
 				encroachedEdges.push(edge);
 			}
 		}
 		checkedEdges.clear();
+        
+        // fix encroached edges without noting bad triangles
+        while(!encroachedEdges.empty() && insertSteinerCnt < maxSteinerCnt)
+        {
+            Edge edge = encroachedEdges.top();
+            encroachedEdges.pop();
+            
+            splitEdge(edge);
+        }
 
-		// collect all bad triangles in CDT
-		TriIdxMap badTriangles;
+		// collect all bad triangles
 		for (size_t i = 0; i < triangles.size(); i++)
 		{
 			const Triangle& tri = triangles[i];
@@ -845,67 +856,43 @@ namespace CDT
 			// Check whether the angle is smaller than permitted
 			if (triQuality.minAngleCosSquare > goodAngleCosSquare)
 			{
-				badTriangles.emplace(triQuality.minAngleCosSquare, i);
+				badTriangles.push_back(i);
 			}
 		}
 
-		/* The algorithm interleaves segment splitting with triangle splitting,
-		 * and encroached segments are given priority over skinny triangles.
-		 */
-		insertSteinerCnt = 0;
-		failedSplitBadTris = 0;
-		totalSplitTris = 0;
-		totalSplitEdges = 0;
-		//EdgeStack tmp;
-		//encroachedEdges.swap(tmp);
-		while (insertSteinerCnt < maxSteinerCnt &&
-			(!encroachedEdges.empty() || !badTriangles.empty()))
+        assert(encroachedEdges.empty());
+		while (!badTriangles.empty() && insertSteinerCnt < maxSteinerCnt)
 		{
-			size_t trisSizeBeforeRefine = triangles.size();
-			if (!encroachedEdges.empty())
-			{
-				bool succ = splitEdge(encroachedEdges);
-				if (!succ)
-					continue;
-			}
-			else if (!badTriangles.empty())
-			{
-				bool succ = splitTriangle(encroachedEdges, badTriangles);
-				if (!succ)
-					continue;
-			}
-
-			// there maybe some new triangles added after above operation, so check whether they are bad
-			for (size_t i = trisSizeBeforeRefine; i < triangles.size(); i++)
-			{
-				const Triangle& tri = triangles[i];
-				TriangleQuality triQuality;
-				calTriangleQuality(tri, triQuality);
-				// Check whether the angle is smaller than permitted
-				if (triQuality.minAngleCosSquare > goodAngleCosSquare)
-				{
-					badTriangles.emplace(triQuality.minAngleCosSquare, i);
-				}
-			}
+            IdxType badTriIdx = badTriangles.front();
+            badTriangles.pop_front();
+            
+            splitTriangle(badTriIdx);
+            
+            if (!encroachedEdges.empty())
+            {
+                // put bad triangle back in queue for another try later
+                badTriangles.push_back(badTriIdx);
+                
+                // fix any encroached subsegments that resulted
+                while(!encroachedEdges.empty() && insertSteinerCnt < maxSteinerCnt)
+                {
+                    Edge edge = encroachedEdges.top();
+                    encroachedEdges.pop();
+                    
+                    splitEdge(edge);
+                }
+            }
 		}
+        
 		std::cout << "total inserted steiner points num: " << insertSteinerCnt << std::endl;
 		std::cout << "total splitted encroached edges num: " << totalSplitEdges << std::endl;
 		std::cout << "total splitted bad triangles num: " << totalSplitTris << std::endl;
-		std::cout << std::endl;
 		std::cout << "faild split bad triangles num: " << failedSplitBadTris << std::endl;
 		std::cout << std::endl;
 	}
 
-	bool Triangulation::splitEdge(EdgeStack& encroachedEdges)
+	void Triangulation::splitEdge(const Edge& edge)
 	{
-		Edge edge = encroachedEdges.top();
-		encroachedEdges.pop();
-		// the encroached edge may have been deleted
-		if (!isEdgeTriExist(edge))
-			return false;
-		// check whether to split constrained edge
-		if (!splitConstrainedEdge && isEdgeConstrained(edge))
-			return false;
 		const Triangle* tri = getTriangle(edge);
 		IdxType edgeV1 = edge.V1();
 		IdxType edgeV2 = edge.V2();
@@ -957,60 +944,50 @@ namespace CDT
 		PrecisionType newVtxX = vtx1.X() + (vtx2.X() - vtx1.X()) * split;
 		PrecisionType newVtxY = vtx1.Y() + (vtx2.Y() - vtx1.Y()) * split;
 		Vertex newVtx(newVtxX, newVtxY);
-		IdxType newVtxIdx = addSteinerVertex(newVtx);
+        IdxType newVtxIdx = vertices.size();
+        vertices.push_back(newVtx);
 
 		// try to insert the new vertex on edge
 		try
 		{
-			insertVtxOnEdgeCustom(newVtxIdx, edgeV1, edgeV2);
+			insertVtxOnEdgeCDT(newVtxIdx, edgeV1, edgeV2);
+            
+            // check whether the splitted sub-edge encroached
+            Edge splitEdge1(edgeV1, newVtxIdx);
+            Edge splitEdge2(newVtxIdx, edgeV2);
+            if (isEdgeEncroached(splitEdge1))
+            {
+                encroachedEdges.push(splitEdge1);
+            }
+            if (isEdgeEncroached(splitEdge2))
+            {
+                encroachedEdges.push(splitEdge2);
+            }
+
+            totalSplitEdges++;
+            insertSteinerCnt++;
 		}
 		catch (...)
 		{
-			popLastSteinerVertex();
-			return false;
+            /* something unexpected happended*/
+            vertices.pop_back();
 		}
-
-		// check whether the splitted sub-edge encroached
-		Edge splitEdge1(edgeV1, newVtxIdx);
-		Edge splitEdge2(newVtxIdx, edgeV2);
-		if (isEdgeTriExist(splitEdge1) && isEdgeEncroached(splitEdge1))
-		{
-			encroachedEdges.push(splitEdge1);
-		}
-		if (isEdgeTriExist(splitEdge2) && isEdgeEncroached(splitEdge2))
-		{
-			encroachedEdges.push(splitEdge2);
-		}
-
-		totalSplitEdges++;
-		insertSteinerCnt++;
-		return true;
 	}
 
-	bool Triangulation::splitTriangle(EdgeStack& encroachedEdges, TriIdxMap& badTriangles)
+	void Triangulation::splitTriangle(IdxType badTriIdx)
 	{
-		auto beginIter = badTriangles.begin();
-		IdxType badTriIdx = beginIter->second;
-		badTriangles.erase(beginIter);
-		const Triangle& badTri = triangles[badTriIdx];
-		// the bad triangle may have been deleted
-		if (!isEdgeTriExist(badTri))
-			return false;
-
+        const Triangle& badTri = triangles[badTriIdx];
+        
 		// add it to vertices for point location operation below
 		Vertex centerVtx = findCircumcenter(badTri);
 		//Vertex centerVtx = findCentriod(badTri);
-		IdxType centerVtxIdx = addSteinerVertex(centerVtx);
+        IdxType newVtxIdx = vertices.size();
+        vertices.push_back(centerVtx);
 
-		// check steiner vertex whether locate inside current triangulation
+		// the new vertex must be in the interior
 		TriangulationLocation loc;
-		locatePointWithGuide(centerVtxIdx, &badTri, loc);
-		if (loc.type != TriangulationLocationType::TL_INSIDE)
-		{
-			failedSplitBadTris++;
-			popLastSteinerVertex();
-			return false;
-		}
+		locatePointWithGuide(newVtxIdx, &badTri, loc);
+        assert (loc.type == TriangulationLocationType::TL_INSIDE);
 
 		// check steiner vertex too close or duplicate with exist vertex
 		const Triangle* tri = loc.tri;
@@ -1020,63 +997,44 @@ namespace CDT
 			const Vertex& vtx = vertices[triV];
 			double dxSquare = (vtx.X() - centerVtx.X()) * (vtx.X() - centerVtx.X());
 			double dySquare = (vtx.Y() - centerVtx.Y())* (vtx.Y() - centerVtx.Y());
-			double dist = dxSquare + dySquare;
-			PrecisionType distTol = CDT_ZERO * CDT_ZERO;
-			if (dist < distTol)
+			if (dxSquare + dySquare < CDT_ZERO * CDT_ZERO)
 			{
 				failedSplitBadTris++;
 				vertices.pop_back();
-				return false;
-			}
-		}
-
-		if (checkSteinerEncroachingEdges)
-		{
-			// check whether steiner vertex encroaching edges
-			std::vector<Edge> edgesEncroach;
-			findEncroachedEdgesByVtx(centerVtxIdx, badTri, edgesEncroach);
-			if (!edgesEncroach.empty())
-			{
-				// removed the circumcenter from vertices because edge-encroached checking rejected it
-				popLastSteinerVertex();
-				for (const Edge& edge : edgesEncroach)
-				{
-					encroachedEdges.push(edge);
-				}
-				return false;
+				return;
 			}
 		}
 
 		// try to insert the new vertex
 		try
 		{
-			insertVtxCustom(centerVtxIdx, tri);
+            VertexInsertType insertResult = insertVtxCDT(newVtxIdx, tri);
+            if(insertResult == VI_SUCCESS)
+            {
+                insertSteinerCnt++;
+                totalSplitTris++;
+            }
+            else if(insertResult == VI_ENCROACHED)
+            {
+                /* If the newly inserted vertex encroaches upon a subsegment,
+                 * delete the new vertex*/
+                undoInsertVtxCDT();
+            }
+            else /* VI_VIOLATING*/
+            {
+                /* failed to insert the new vertex, but some subsegment was
+                 * marked as being encroached */
+            }
 		}
 		catch (...)
 		{
+            /* something unexpected happended*/
 			failedSplitBadTris++;
-			popLastSteinerVertex();
-			return false;
+            vertices.pop_back();
 		}
-
-		insertSteinerCnt++;
-		totalSplitTris++;
-		return true;
 	}
 
-	IdxType Triangulation::addSteinerVertex(const Vertex& vtx)
-	{
-		IdxType newVtxIdx = vertices.size();
-		vertices.push_back(vtx);
-		return newVtxIdx;
-	}
-
-	void Triangulation::popLastSteinerVertex()
-	{
-		vertices.pop_back();
-	}
-
-	void Triangulation::insertVtxCustom(IdxType v, const Triangle* tri)
+    VertexInsertType Triangulation::insertVtxCDT(IdxType v, const Triangle* tri)
 	{
 		PntTriLocationType locTri = locatePntTriangle(v, tri->V1(), tri->V2(), tri->V3());
 		assert(locTri != PntTriLocationType::PT_OUTSIDE);
@@ -1087,26 +1045,31 @@ namespace CDT
 			size_t v2IdxInTri = (v1IdxInTri + 1) % 3;
 			IdxType edgeV1 = tri->V(v1IdxInTri);
 			IdxType edgeV2 = tri->V(v2IdxInTri);
-			insertVtxOnEdgeCustom(v, edgeV1, edgeV2);
+			return insertVtxOnEdgeCDT(v, edgeV1, edgeV2);
 		}
 		else  /*inside triangle*/
 		{
-			insertVtxInTriangleCustom(v, tri);
+			return insertVtxInTriangleCDT(v, tri);
 		}
 	}
 
-	void Triangulation::insertVtxInTriangleCustom(IdxType v, const Triangle* tri)
+    void Triangulation::undoInsertVtxCDT()
+    {
+        
+    }
+
+    VertexInsertType Triangulation::insertVtxInTriangleCDT(IdxType v, const Triangle* tri)
 	{
 		IdxType v1 = tri->V1();
 		IdxType v2 = tri->V2();
 		IdxType v3 = tri->V3();
 		deleteTriangle(v1, v2, v3);
-		digCavityCustom(v, v1, v2);
-		digCavityCustom(v, v2, v3);
-		digCavityCustom(v, v3, v1);
+		digCavityCDT(v, v1, v2);
+		digCavityCDT(v, v2, v3);
+		digCavityCDT(v, v3, v1);
 	}
 
-	void Triangulation::insertVtxOnEdgeCustom(IdxType v, IdxType edgeV1, IdxType edgeV2)
+    VertexInsertType Triangulation::insertVtxOnEdgeCDT(IdxType v, IdxType edgeV1, IdxType edgeV2)
 	{
 		Edge edge(edgeV1, edgeV2);
 		IdxType edgTriV = adjacent(edgeV1, edgeV2);
@@ -1114,17 +1077,18 @@ namespace CDT
 		if (isVtxValid(edgTriV))
 		{
 			deleteTriangle(edgeV1, edgeV2, edgTriV);
-			digCavityCustom(v, edgeV2, edgTriV);
-			digCavityCustom(v, edgTriV, edgeV1);
+			digCavityCDT(v, edgeV2, edgTriV);
+			digCavityCDT(v, edgTriV, edgeV1);
 		}
 		if (isVtxValid(edgRevTriV))
 		{
 			deleteTriangle(edgeV2, edgeV1, edgRevTriV);
-			digCavityCustom(v, edgeV1, edgRevTriV);
-			digCavityCustom(v, edgRevTriV, edgeV2);
+			digCavityCDT(v, edgeV1, edgRevTriV);
+			digCavityCDT(v, edgRevTriV, edgeV2);
 		}
-		if (isEdgeConstrained(edge) &&
-			(isVtxValid(edgTriV) || isVtxValid(edgRevTriV)))
+        
+        // mark two splitted edges constrained if it derived from a constrained edge
+		if (isEdgeConstrained(edge) && (isVtxValid(edgTriV) || isVtxValid(edgRevTriV)))
 		{
 			removeConstrainEdge(edge);
 			Edge splitEdge1(edgeV1, v);
@@ -1134,7 +1098,7 @@ namespace CDT
 		}
 	}
 
-	void Triangulation::digCavityCustom(IdxType v, IdxType v1, IdxType v2)
+	void Triangulation::digCavityCDT(IdxType v, IdxType v1, IdxType v2)
 	{
 		// do not flip constrained edge
 		if (isEdgeConstrained(Edge(v1, v2)))
@@ -1158,8 +1122,8 @@ namespace CDT
 		else
 		{
 			deleteTriangle(v2, v1, vOpo);
-			digCavityCustom(v, v1, vOpo);
-			digCavityCustom(v, vOpo, v2);
+			digCavityCDT(v, v1, vOpo);
+			digCavityCDT(v, vOpo, v2);
 		}
 	}
 
@@ -1169,9 +1133,9 @@ namespace CDT
 		 *
 		 * Walking is fast in practice if it follows two guides:
 		 * 1.the vertices should be inserted in an order that has much spatial locality
-		 * 2.each walk should begin at the most recently created tetrahedron
+		 * 2.each walk should begin at the most recently created triangle
 		 *
-		 * The typical walk visits small constant number of tetrahedron
+		 * The typical walk visits small constant number of triangle
 		 */
 
 		assert(guideTri != nullptr);
@@ -1295,21 +1259,19 @@ namespace CDT
 		PrecisionType dotproduct = (vtx1.X() - vtx.X()) * (vtx2.X() - vtx.X()) +
 			(vtx1.Y() - vtx.Y()) * (vtx2.Y() - vtx.Y());
 
-		return dotproduct < 0;
-
-		//if (dotproduct < 0)
-		//{
-		//	// (180 - 2 `minangle') degrees for lenses
-		//	PrecisionType a = dotproduct * dotproduct;
-		//	PrecisionType b = (2.0 * goodAngleCosSquare - 1.0) * (2.0 * goodAngleCosSquare - 1.0);
-		//	PrecisionType c = (vtx1.X() - vtx.X()) * (vtx1.X() - vtx.X()) +
-		//		(vtx1.Y() - vtx.Y()) * (vtx1.Y() - vtx.Y());
-		//	PrecisionType d = (vtx2.X() - vtx.X()) * (vtx2.X() - vtx.X()) +
-		//		(vtx2.Y() - vtx.Y()) * (vtx2.Y() - vtx.Y());
-		//	PrecisionType e = b * c * d;
-		//	return a >= e;
-		//}
-		//return false;
+		if (dotproduct < 0)
+		{
+			// (180 - 2 `minangle') degrees for lenses
+			PrecisionType a = dotproduct * dotproduct;
+			PrecisionType b = (2.0 * goodAngleCosSquare - 1.0) * (2.0 * goodAngleCosSquare - 1.0);
+			PrecisionType c = (vtx1.X() - vtx.X()) * (vtx1.X() - vtx.X()) +
+				(vtx1.Y() - vtx.Y()) * (vtx1.Y() - vtx.Y());
+			PrecisionType d = (vtx2.X() - vtx.X()) * (vtx2.X() - vtx.X()) +
+				(vtx2.Y() - vtx.Y()) * (vtx2.Y() - vtx.Y());
+			PrecisionType e = b * c * d;
+			return a >= e;
+		}
+		return false;
 	}
 
 	void Triangulation::calTriangleQuality(const Triangle& tri, TriangleQuality& triQuality) const
@@ -1440,70 +1402,6 @@ namespace CDT
 		}
 
 		return Vertex(v2.X() + dx, v2.Y() + dy);
-	}
-
-	void Triangulation::findEncroachedEdgesByVtx(IdxType v, const Triangle& tri, std::vector<Edge>& edgeList)
-	{
-#ifndef CheckAllEdgeEncroched
-		EdgeUSet checkedEdges;
-		for (const auto& edgeTriPair : edgeTriIdxTable)
-		{
-			const Edge& edge = edgeTriPair.first;
-			checkedEdges.insert(edge);
-			Edge edgeRev(edge.V2(), edge.V1());
-			if (checkedEdges.find(edgeRev) != checkedEdges.end())
-				continue;
-			// check whether to split constrained edge
-			if (!splitConstrainedEdge && isEdgeConstrained(edge))
-				continue;
-			if (isEdgeEncroachedByVtx(edge, v))
-			{
-				edgeList.push_back(edge);
-			}
-		}
-#else
-		// NOTE: we only check the tri's three edge and the tri's three adjacent tri's edges
-		std::vector<Edge> candidates;
-		candidates.reserve(9);
-		Edge edge1(tri.V1(), tri.V2());
-		Edge edge2(tri.V2(), tri.V3());
-		Edge edge3(tri.V3(), tri.V1());
-		// collect current triangle's three edgs
-		candidates.push_back(edge1);
-		candidates.push_back(edge2);
-		candidates.push_back(edge3);
-		// collect current triangle's three adjacent triangles' edges
-		Edge edge1Rev(tri.V2(), tri.V1());
-		Edge edge2Rev(tri.V3(), tri.V2());
-		Edge edge3Rev(tri.V1(), tri.V3());
-		const Triangle* triTmp = nullptr;
-		if (isEdgeTriExist(edge1Rev))
-		{
-			triTmp = getTriangle(edge1Rev);
-			candidates.push_back(Edge(tri.V1(), triTmp->GetVtxCCW(tri.V1())));
-			candidates.push_back(Edge(triTmp->GetVtxCW(tri.V2()), tri.V2()));
-		}
-		if (isEdgeTriExist(edge2Rev))
-		{
-			triTmp = getTriangle(edge2Rev);
-			candidates.push_back(Edge(tri.V2(), triTmp->GetVtxCCW(tri.V2())));
-			candidates.push_back(Edge(triTmp->GetVtxCW(tri.V3()), tri.V3()));
-		}
-		if (isEdgeTriExist(edge3Rev))
-		{
-			triTmp = getTriangle(edge3Rev);
-			candidates.push_back(Edge(tri.V3(), triTmp->GetVtxCCW(tri.V3())));
-			candidates.push_back(Edge(triTmp->GetVtxCW(tri.V1()), tri.V1()));
-		}
-		// check whether candidate edge encroached
-		for (const Edge& canEdge : candidates)
-		{
-			if (isEdgeEncroachedByVtx(canEdge, v))
-			{
-				edgeList.push_back(canEdge);
-			}
-		}
-#endif
 	}
 
 	void Triangulation::addTriangle(IdxType v1, IdxType v2, IdxType v3)
