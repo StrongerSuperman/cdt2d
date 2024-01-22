@@ -276,15 +276,18 @@ namespace CDT
 		void delaunayRefinement();
 		void splitEdge(const Edge& edge);
 		void splitTriangle(IdxType badTriIdx);
-        VertexInsertType insertVtxCDT(IdxType v, const Triangle* tri);
+        VertexInsertType insertVtxDR(IdxType v, const Triangle* tri);
         void undoInsertVtxCDT();
-        VertexInsertType insertVtxOnEdgeCDT(IdxType v, const Edge& edge, bool force=false);
-        VertexInsertType insertVtxInTriangleCDT(IdxType v, const Triangle* tri);
-		bool digCavityCDT(IdxType v, IdxType v1, IdxType v2);
-        bool checkTriEdgeEncroached(IdxType v1, IdxType v2, IdxType v3);
-		void locatePointWithGuide(IdxType v, const Triangle* guideTri, TriangulationLocation& loc);
+        VertexInsertType insertVtxOnEdgeDR(IdxType v, const Edge& edge, bool force=false);
+        VertexInsertType insertVtxInTriangleDR(IdxType v, const Triangle* tri);
+		void digCavityDR(IdxType v, IdxType v1, IdxType v2);
+        bool checkAndAddTriEdgeEncroached(IdxType v1, IdxType v2, IdxType v3);
+        bool checkAndAddTriEdgeEncroachedByVtx(IdxType v1, IdxType v2, IdxType v3, IdxType v);
+        bool checkAndAddEdgeEncroached(IdxType v1, IdxType v2);
+        bool checkAndAddEdgeEncroachedByVtx(IdxType v1, IdxType v2, IdxType v);
 		bool isEdgeEncroached(const Edge& edge);
 		bool isEdgeEncroachedByVtx(const Edge& edge, IdxType v);
+        void locatePointWithGuide(IdxType v, const Triangle* guideTri, TriangulationLocation& loc);
 		void calTriangleQuality(const Triangle& tri, TriangleQuality& triQuality) const;
 		Vertex findCircumcenter(const Triangle& tri) const;
 		Vertex findCentriod(const Triangle& tri) const;
@@ -359,34 +362,33 @@ namespace CDT
 		};
 
 	private:
-		std::vector<Vertex> vertices;
-		std::vector<Edge> edges;
-		std::vector<std::vector<Edge>> holesEdges;
-		std::vector<Triangle> triangles;
-
-		/* each directed edge has a certain mapping triangle which can be solid/ghost triangle*/
-		EdgToTriIdxUMap edgeTriIdxTable;
-		/* TODO: use kd-tree to find nearest point*/
-		IdxType mostRecentAddedTri = DUMMY_TRI_IDX;
-		/* most recently added triangle adjoining u(key) also has a v(value) for a vertex*/
-		std::unordered_map<IdxType, IdxType> vtx2vtxMap;
+		std::vector<Vertex> vertices;              // all vertices
+        std::vector<Triangle> triangles;           // all triangles
+		std::vector<Edge> edges;                   // input boundary edges
+		std::vector<std::vector<Edge>> holesEdges; // input hole edges
         
-		EdgeUSet ghostTriEdges;
-		EdgeUSet constrainedEdges;
+        /* for CDT*/
+        EdgeUSet ghostTriEdges;          // ghost edges(one vertex of the edge is ghost vertex)
+        EdgeUSet constrainedEdges;       // all boundary edges
+		EdgToTriIdxUMap edgeTriIdxTable; // each directed edge has a certain mapping triangle which can be solid/ghost triangle
+        
+        /* for accelerating query in CDT*/
+		std::unordered_map<IdxType, IdxType> vtx2vtxMap; // most recently added triangle adjoining u(key) also has a v(value) for a vertex
+        IdxType mostRecentAddedTri = DUMMY_TRI_IDX;      // TODO: use kd-tree to find nearest point
         
         /* for orient and incircle test*/
 		PredicateType orient2dTol = 0;
 		PredicateType incircleTol = 0;
         
         /* for delaunay refinement*/
-        EdgeUSet encroachedEdges;
-        TriIdxDeque badTriangles;
-		int insertSteinerCnt = 0;              // current insert steiner point cnt
-		int maxSteinerCnt = 500;               // max insert steiner pnt cnt
-		PrecisionType maxArea = 10.0;          // maximum area bound
-		PrecisionType minAngle = 25.0;         // minimum angle bound
-		PrecisionType goodAngleCosSquare;      // cosine squared of minAngle
-		PrecisionType offConstant;             // constant used to place off-center Steiner points
+        EdgeUSet encroachedEdges;         // encroached edges to be split
+        TriIdxDeque badTriangles;         // bad triangles to be split
+		int insertSteinerCnt = 0;         // current insert steiner point cnt
+		int maxSteinerCnt = 500;          // max insert steiner pnt cnt
+		PrecisionType maxArea = 10.0;     // maximum area bound
+		PrecisionType minAngle = 25.0;    // minimum angle bound
+		PrecisionType goodAngleCosSquare; // cosine squared of minAngle
+		PrecisionType offConstant;        // constant used to place off-center Steiner points
 
 		/* for debug*/
 		int failedSplitBadTris = 0;
