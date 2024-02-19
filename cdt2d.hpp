@@ -275,15 +275,13 @@ namespace CDT
 		/* Delaunay refine*/
 		void delaunayRefinement();
 		void splitEdge(const Edge& edge);
-		void splitTriangle(IdxType badTriIdx);
+        bool splitTriangle(IdxType badTriIdx);
         VertexInsertType insertVtxDR(IdxType v, const Triangle* tri);
         void undoInsertVtxCDT();
         VertexInsertType insertVtxOnEdgeDR(IdxType v, const Edge& edge, bool force=false);
         VertexInsertType insertVtxInTriangleDR(IdxType v, const Triangle* tri);
-		void digCavityDR(IdxType v, IdxType v1, IdxType v2);
-        bool checkAndAddTriEdgeEncroached(IdxType v1, IdxType v2, IdxType v3);
+		void digCavityDR(IdxType v, IdxType v1, IdxType v2, bool force=false);
         bool checkAndAddTriEdgeEncroachedByVtx(IdxType v1, IdxType v2, IdxType v3, IdxType v);
-        bool checkAndAddEdgeEncroached(IdxType v1, IdxType v2);
         bool checkAndAddEdgeEncroachedByVtx(IdxType v1, IdxType v2, IdxType v);
 		bool isEdgeEncroached(const Edge& edge);
 		bool isEdgeEncroachedByVtx(const Edge& edge, IdxType v);
@@ -309,8 +307,8 @@ namespace CDT
 	private:
 		void addEdgeTri(const Edge& edge, IdxType triIdx);
 		void removeEdgeTri(const Edge& edge);
-		bool isEdgeTriExist(const Edge& edge) const;
-		bool isEdgeTriExist(const Triangle& tri) const;
+		bool isEdgeExist(const Edge& edge);
+		bool isTriExist(const Triangle& tri);
 
 		IdxType getTriangleIdx(const Edge& edge);
 		const Triangle* getTriangle(const Edge& edge);
@@ -364,11 +362,14 @@ namespace CDT
 	private:
 		std::vector<Vertex> vertices;              // all vertices
         std::vector<Triangle> triangles;           // all triangles
+        
 		std::vector<Edge> edges;                   // input boundary edges
 		std::vector<std::vector<Edge>> holesEdges; // input hole edges
         
         /* for CDT*/
         EdgeUSet ghostTriEdges;          // ghost edges(one vertex of the edge is ghost vertex)
+        
+        /* for CDT and delaunay refinement*/
         EdgeUSet constrainedEdges;       // all boundary edges
 		EdgToTriIdxUMap edgeTriIdxTable; // each directed edge has a certain mapping triangle which can be solid/ghost triangle
         
@@ -386,9 +387,16 @@ namespace CDT
 		int insertSteinerCnt = 0;         // current insert steiner point cnt
 		int maxSteinerCnt = 500;          // max insert steiner pnt cnt
 		PrecisionType maxArea = 10.0;     // maximum area bound
-		PrecisionType minAngle = 25.0;    // minimum angle bound
+		PrecisionType minAngle = 30.0;    // minimum angle bound
 		PrecisionType goodAngleCosSquare; // cosine squared of minAngle
 		PrecisionType offConstant;        // constant used to place off-center Steiner points
+        
+        /* cache*/
+        std::vector<Triangle> trianglesCache;
+        EdgeUSet constrainedEdgesCache;
+        EdgToTriIdxUMap edgeTriIdxTableCache;
+        std::unordered_map<IdxType, IdxType> vtx2vtxMapCache;
+        
 
 		/* for debug*/
 		int failedSplitBadTris = 0;
